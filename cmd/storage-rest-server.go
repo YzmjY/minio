@@ -1347,6 +1347,7 @@ func registerStorageRESTHandlers(router *mux.Router, endpointServerPools Endpoin
 	}
 	for _, serverPool := range endpointServerPools {
 		for _, endpoint := range serverPool.Endpoints {
+			// 对于local的启动
 			if !endpoint.IsLocal {
 				continue
 			}

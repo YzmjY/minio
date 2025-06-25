@@ -80,11 +80,15 @@ func newErasureServerPools(ctx context.Context, endpointServerPools EndpointServ
 		commonParityDrives int
 		err                error
 
+		// 对应format.json
 		formats      = make([]*formatErasureV3, len(endpointServerPools))
+
+		// 提供disk读写操作API
 		storageDisks = make([][]StorageAPI, len(endpointServerPools))
+
 		z            = &erasureServerPools{
-			serverPools:      make([]*erasureSets, len(endpointServerPools)),
-			s3Peer:           NewS3PeerSys(endpointServerPools),
+			serverPools:      make([]*erasureSets, len(endpointServerPools)), // erasureSet集合
+			s3Peer:           NewS3PeerSys(endpointServerPools),  
 			distributionAlgo: formatErasureVersionV3DistributionAlgoV3,
 		}
 	)

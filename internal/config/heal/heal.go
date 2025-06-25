@@ -156,7 +156,7 @@ func LookupConfig(kvs config.KVS) (cfg Config, err error) {
 		return cfg, err
 	}
 
-	bitrot := env.Get(EnvBitrot, kvs.GetWithDefault(Bitrot, DefaultKVS))
+	bitrot := env.Get(EnvBitrot, kvs.GetWithDefault(Bitrot, DefaultKVS)) // 默认为off
 	if _, err = parseBitrotConfig(bitrot); err != nil {
 		return cfg, fmt.Errorf("'heal:bitrotscan' value invalid: %w", err)
 	}

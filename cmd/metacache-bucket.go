@@ -31,11 +31,13 @@ import (
 
 // a bucketMetacache keeps track of all caches generated
 // for a bucket.
+// bucketMetacache => .minio.sys/buckets/<bucket>/.metacache/id
 type bucketMetacache struct {
 	// Name of bucket
 	bucket string
 
 	// caches indexed by id.
+	// TODO: id: ???
 	caches map[string]metacache
 	// cache ids indexed by root paths
 	cachesRoot map[string][]string `msg:"-"`

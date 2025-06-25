@@ -332,6 +332,7 @@ func getMetacacheBlockInfo(fi FileInfo, block int) (*metacacheBlock, error) {
 const metacachePrefix = ".metacache"
 
 func metacachePrefixForID(bucket, id string) string {
+	// buckets/<bucket>/.metacache/<id>
 	return pathJoin(bucketMetaPrefix, bucket, metacachePrefix, id)
 }
 

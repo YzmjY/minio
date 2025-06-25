@@ -387,6 +387,7 @@ func (z *erasureServerPools) listAndSave(ctx context.Context, o *listPathOptions
 	saver := z.serverPools[o.pool].sets[o.set]
 
 	// Disconnect from call above, but cancel on exit.
+	// 使用全局的Context
 	listCtx, cancel := context.WithCancel(GlobalContext)
 	saveCh := make(chan metaCacheEntry, metacacheBlockSize)
 	inCh := make(chan metaCacheEntry, metacacheBlockSize)

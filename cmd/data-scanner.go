@@ -97,6 +97,8 @@ func getCycleScanMode(currentCycle, bitrotStartCycle uint64, bitrotStartTime tim
 		return madmin.HealDeepScan
 	}
 
+	// 启用了deep
+
 	if currentCycle-bitrotStartCycle < healObjectSelectProb {
 		return madmin.HealDeepScan
 	}
@@ -182,15 +184,18 @@ func runDataScanner(ctx context.Context, objAPI ObjectLayer) {
 		case <-scannerTimer.C:
 			// Reset the timer for next cycle.
 			// If scanner takes longer we start at once.
-			scannerTimer.Reset(scannerCycle.Load())
+			scannerTimer.Reset(scannerCycle.Load()) // 最少一分钟，如果上一次的scan耗时大于一分钟，则下一次的scan会立刻开始。
 
+			// 记录扫描过程的指标
 			stopFn := globalScannerMetrics.log(scannerMetricScanCycle)
 			cycleInfo.current = cycleInfo.next
 			cycleInfo.started = time.Now()
 			globalScannerMetrics.setCycle(&cycleInfo)
 
+			// 读取上一轮的修复的持久化信息
 			bgHealInfo := readBackgroundHealInfo(ctx, objAPI)
-			scanMode := getCycleScanMode(cycleInfo.current, bgHealInfo.BitrotStartCycle, bgHealInfo.BitrotStartTime)
+			// 决定本轮扫描的扫描模式：bit/normal，默认配置下不会进行bit模式的扫描
+			scanMode := getCycleScanMode(cycleInfo.current, bgHealInfo.BitrotStartCycle, bgHealInfo.BitrotStartTime) 
 			if bgHealInfo.CurrentScanMode != scanMode {
 				newHealInfo := bgHealInfo
 				newHealInfo.CurrentScanMode = scanMode

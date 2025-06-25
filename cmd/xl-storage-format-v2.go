@@ -145,6 +145,7 @@ func (e ChecksumAlgo) valid() bool {
 	return e > invalidChecksumAlgo && e < lastChecksumAlgo
 }
 
+// 标记删除 
 // xlMetaV2DeleteMarker defines the data struct for the delete marker journal type
 type xlMetaV2DeleteMarker struct {
 	VersionID [16]byte          `json:"ID" msg:"ID"`                               // Version ID for delete marker
@@ -152,6 +153,7 @@ type xlMetaV2DeleteMarker struct {
 	MetaSys   map[string][]byte `json:"MetaSys,omitempty" msg:"MetaSys,omitempty"` // Delete marker internal metadata
 }
 
+// 普通Object meta
 // xlMetaV2Object defines the data struct for object journal type
 type xlMetaV2Object struct {
 	VersionID          [16]byte          `json:"ID" msg:"ID"`                                    // Version ID

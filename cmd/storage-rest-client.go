@@ -999,8 +999,8 @@ func newStorageRESTClient(endpoint Endpoint, healthCheck bool, gm *grid.Manager)
 	}
 	client := &storageRESTClient{
 		endpoint:      endpoint,
-		restClient:    restClient,
-		gridConn:      conn,
+		restClient:    restClient, // rest 客户端
+		gridConn:      conn, // ws 客户端
 		diskInfoCache: cachevalue.New[DiskInfo](),
 	}
 	client.SetDiskID(emptyDiskID)

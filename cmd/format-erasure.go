@@ -387,6 +387,7 @@ func saveFormatErasure(disk StorageAPI, format *formatErasureV3, healID string) 
 
 // loadFormatErasure - loads format.json from disk.
 func loadFormatErasure(disk StorageAPI, heal bool) (format *formatErasureV3, err error) {
+	// read format.json
 	data, err := disk.ReadAll(context.TODO(), minioMetaBucket, formatConfigFile)
 	if err != nil {
 		// 'file not found' and 'volume not found' as

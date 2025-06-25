@@ -477,6 +477,7 @@ func newErasureSets(ctx context.Context, endpoints PoolEndpoints, storageDisks [
 
 	// Start the disk monitoring and connect routine.
 	if !globalIsTesting {
+		// 尝试与其他节点的disk建立连接。
 		go s.monitorAndConnectEndpoints(ctx, defaultMonitorConnectEndpointInterval)
 	}
 
