@@ -737,7 +737,7 @@ func (z *erasureServerPools) StorageInfo(ctx context.Context, metrics bool) Stor
 
 func (z *erasureServerPools) NSScanner(ctx context.Context, updates chan<- DataUsageInfo, wantCycle uint32, healScanMode madmin.HealScanMode) error {
 	// Updates must be closed before we return.
-	defer xioutil.SafeClose(updates)
+	defer xioutil.SafeClose(updates) // updates chan关闭，通知搜集datausageinfo的协程退出 
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -747,6 +747,7 @@ func (z *erasureServerPools) NSScanner(ctx context.Context, updates chan<- DataU
 	var results []dataUsageCache
 	var firstErr error
 
+	// 获取所有bucket，
 	allBuckets, err := z.ListBuckets(ctx, BucketOptions{})
 	if err != nil {
 		return err
@@ -761,7 +762,7 @@ func (z *erasureServerPools) NSScanner(ctx context.Context, updates chan<- DataU
 	for _, z := range z.serverPools {
 		totalResults += len(z.sets)
 	}
-	results = make([]dataUsageCache, totalResults)
+	results = make([]dataUsageCache, totalResults)  
 	// Collect for each set in serverPools.
 	for _, z := range z.serverPools {
 		for _, erObj := range z.sets {

@@ -890,6 +890,7 @@ func (d *dataUsageCache) load(ctx context.Context, store objectIO, name string) 
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 
+		// 读.minio.sys/buckets/.usage-cache.bin
 		r, err := store.GetObjectNInfo(ctx, minioMetaBucket, pathJoin(bucketMetaPrefix, name), nil, http.Header{}, ObjectOptions{NoLock: true})
 		if err != nil {
 			switch err.(type) {

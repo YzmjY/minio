@@ -393,15 +393,17 @@ func (er erasureObjects) nsScanner(ctx context.Context, buckets []BucketInfo, wa
 	}
 
 	// Load bucket totals
+	// oldCache为旧的usage缓存，通过读取.minio.sys/buckets/.usage-cache.bin获取
 	oldCache := dataUsageCache{}
 	if err := oldCache.load(ctx, er, dataUsageCacheName); err != nil {
 		return err
 	}
 
 	// New cache..
+	// 新建Cache，扫描结束后持久化到.minio.sys/buckets/.usage-cache.bin中
 	cache := dataUsageCache{
 		Info: dataUsageCacheInfo{
-			Name:      dataUsageRoot,
+			Name:      dataUsageRoot, // "/",根目录，搜集所有bucket的用量
 			NextCycle: oldCache.Info.NextCycle,
 		},
 		Cache: make(map[string]dataUsageEntry, len(oldCache.Cache)),
@@ -421,13 +423,13 @@ func (er erasureObjects) nsScanner(ctx context.Context, buckets []BucketInfo, wa
 	for _, idx := range permutes {
 		b := buckets[idx]
 		if e := oldCache.find(b.Name); e == nil {
-			bucketCh <- b
+			bucketCh <- b // 优先将新的bucket传入
 		}
 	}
 	for _, idx := range permutes {
 		b := buckets[idx]
 		if e := oldCache.find(b.Name); e != nil {
-			cache.replace(b.Name, dataUsageRoot, *e)
+			cache.replace(b.Name, dataUsageRoot, *e) // 复用上次的cache
 			bucketCh <- b
 		}
 	}
@@ -497,12 +499,12 @@ func (er erasureObjects) nsScanner(ctx context.Context, buckets []BucketInfo, wa
 
 				// Load cache for bucket
 				cacheName := pathJoin(bucket.Name, dataUsageCacheName)
-				cache := dataUsageCache{}
+				cache := dataUsageCache{} // 先读取,.minio.sys/buckets/<bucketname>/.usage-cache.bin
 				scannerLogIf(ctx, cache.load(ctx, er, cacheName))
 				if cache.Info.Name == "" {
 					cache.Info.Name = bucket.Name
 				}
-				cache.Info.SkipHealing = healing
+				cache.Info.SkipHealing = healing // 如果当前有disk处于heal状态，则本次扫描跳过heal
 				cache.Info.NextCycle = wantCycle
 				if cache.Info.Name != bucket.Name {
 					cache.Info = dataUsageCacheInfo{
@@ -515,6 +517,7 @@ func (er erasureObjects) nsScanner(ctx context.Context, buckets []BucketInfo, wa
 				updates := make(chan dataUsageEntry, 1)
 				var wg sync.WaitGroup
 				wg.Add(1)
+				// 异步收集更新
 				go func(name string) {
 					defer wg.Done()
 					for update := range updates {

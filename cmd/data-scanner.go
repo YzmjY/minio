@@ -99,10 +99,12 @@ func getCycleScanMode(currentCycle, bitrotStartCycle uint64, bitrotStartTime tim
 
 	// 启用了deep
 
+	// 每次deepscan持续1024个扫描周期，这样所有的Object都会被扫描到
 	if currentCycle-bitrotStartCycle < healObjectSelectProb {
 		return madmin.HealDeepScan
 	}
 
+	// 是否达到了deepscan的间隔
 	if time.Since(bitrotStartTime) > bitrotCycle {
 		return madmin.HealDeepScan
 	}
@@ -199,7 +201,7 @@ func runDataScanner(ctx context.Context, objAPI ObjectLayer) {
 			if bgHealInfo.CurrentScanMode != scanMode {
 				newHealInfo := bgHealInfo
 				newHealInfo.CurrentScanMode = scanMode
-				if scanMode == madmin.HealDeepScan {
+				if scanMode == madmin.HealDeepScan { // 记录首次改为deepscan的周期数
 					newHealInfo.BitrotStartTime = time.Now().UTC()
 					newHealInfo.BitrotStartCycle = cycleInfo.current
 				}
@@ -208,16 +210,20 @@ func runDataScanner(ctx context.Context, objAPI ObjectLayer) {
 
 			// Wait before starting next cycle and wait on startup.
 			results := make(chan DataUsageInfo, 1)
-			go storeDataUsageInBackend(ctx, objAPI, results)
+			go storeDataUsageInBackend(ctx, objAPI, results) // 搜集扫描结果，包括bucket\object用量大小汇总信息
+
+			// 扫描主逻辑
 			err := objAPI.NSScanner(ctx, results, uint32(cycleInfo.current), scanMode)
+
 			scannerLogIf(ctx, err)
 			res := map[string]string{"cycle": strconv.FormatUint(cycleInfo.current, 10)}
 			if err != nil {
 				res["error"] = err.Error()
 			}
-			stopFn(res)
+			stopFn(res) // 记录扫描过程指标
 			if err == nil {
 				// Store new cycle...
+				// 记录扫描周期相关信息
 				cycleInfo.next++
 				cycleInfo.current = 0
 				cycleInfo.cycleCompleted = append(cycleInfo.cycleCompleted, time.Now())
@@ -321,10 +327,10 @@ func scanDataFolder(ctx context.Context, disks []StorageAPI, drive *xlStorage, c
 	defer closeDisk()
 
 	s := folderScanner{
-		root:                  basePath,
-		getSize:               getSize,
-		oldCache:              cache,
-		newCache:              dataUsageCache{Info: cache.Info},
+		root:                  basePath,	// minio的卷目录
+		getSize:               getSize, 	// cb，获取对象大小
+		oldCache:              cache,		// 上次scan的结果
+		newCache:              dataUsageCache{Info: cache.Info}, 
 		updateCache:           dataUsageCache{Info: cache.Info},
 		dataUsageScannerDebug: false,
 		healObjectSelect:      0,
@@ -370,9 +376,9 @@ func scanDataFolder(ctx context.Context, disks []StorageAPI, drive *xlStorage, c
 		return cache, ctx.Err()
 	default:
 	}
-	root := dataUsageEntry{}
-	folder := cachedFolder{name: cache.Info.Name, objectHealProbDiv: 1}
-	err := s.scanFolder(ctx, folder, &root)
+	root := dataUsageEntry{} // into 在桶级别传入的是空entry, bucket级别的entry不会compact
+	folder := cachedFolder{name: cache.Info.Name, objectHealProbDiv: 1} 
+	err := s.scanFolder(ctx, folder, &root) // 当前位于bucket目录下，s
 	if err != nil {
 		// No useful information...
 		return cache, err
@@ -404,6 +410,22 @@ func (f *folderScanner) sendUpdate() {
 // If final is provided folders will be put into f.newFolders or f.existingFolders.
 // If final is not provided the folders found are returned from the function.
 func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, into *dataUsageEntry) error {
+	// 递归第一次时，folder.name = bucket_name
+	// s := folderScanner{
+	// 	root:                  basePath,	// minio的卷目录
+	// 	getSize:               getSize, 	// cb，获取对象大小
+	// 	oldCache:              cache,		// 上次scan的结果
+	// 	newCache:              dataUsageCache{Info: cache.Info}, 
+	// 	updateCache:           dataUsageCache{Info: cache.Info},
+	// 	dataUsageScannerDebug: false,
+	// 	healObjectSelect:      0,
+	// 	scanMode:              scanMode,
+	// 	weSleep:               weSleep,
+	// 	updates:               cache.Info.updates,
+	// 	updateCurrentPath:     updatePath,
+	// 	disks:                 disks,
+	// 	disksQuorum:           len(disks) / 2,
+	// }
 	done := ctx.Done()
 	scannerLogPrefix := color.Green("folder-scanner:")
 
@@ -421,7 +443,7 @@ func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, int
 		}
 		var abandonedChildren dataUsageHashMap
 		if !into.Compacted {
-			abandonedChildren = f.oldCache.findChildrenCopy(thisHash)
+			abandonedChildren = f.oldCache.findChildrenCopy(thisHash) // thisHash的子节点
 		}
 
 		// If there are lifecycle rules for the prefix.
@@ -445,9 +467,11 @@ func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, int
 
 		var existingFolders, newFolders []cachedFolder
 		var foundObjects bool
+		// readDirFn 只读取当前目录下的entry，不会递归
+		// 对于第一次递归，则为读取 <bucket>/ 下的entry
 		err := readDirFn(pathJoin(f.root, folder.name), func(entName string, typ os.FileMode) error {
 			// Parse
-			entName = pathClean(pathJoin(folder.name, entName))
+			entName = pathClean(pathJoin(folder.name, entName)) 
 			if entName == "" || entName == folder.name {
 				if f.dataUsageScannerDebug {
 					console.Debugf(scannerLogPrefix+" no entity (%s,%s)\n", f.root, entName)
@@ -475,14 +499,17 @@ func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, int
 			default:
 			}
 
-			if typ&os.ModeDir != 0 {
+			if typ&os.ModeDir != 0 { // 目录
 				h := hashPath(entName)
-				_, exists := f.oldCache.Cache[h.Key()]
+				_, exists := f.oldCache.Cache[h.Key()] // 旧cache是否有该entry
 				if h == thisHash {
 					return nil
 				}
+				// 继承父的objectHealProbDiv
 				this := cachedFolder{name: entName, parent: &thisHash, objectHealProbDiv: folder.objectHealProbDiv}
+				// 找到了该entry，从abandoned中移除
 				delete(abandonedChildren, h.Key()) // h.Key() already accounted for.
+				// 判断是新增还是旧的
 				if exists {
 					existingFolders = append(existingFolders, this)
 					f.updateCache.copyWithChildren(&f.oldCache, h, &thisHash)
@@ -492,6 +519,7 @@ func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, int
 				return nil
 			}
 
+			// 非目录，正常情况下找到了Object，xl.meta文件
 			wait := noWait
 			if f.weSleep() {
 				// Dynamic time delay.
@@ -545,14 +573,18 @@ func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, int
 			return err
 		}
 
-		if foundObjects && globalIsErasure {
+		// 找到了Object，忽略subdir，正常情况下该同级的subdir为数据目录
+		// 第一次递归不会到这里
+		if foundObjects && globalIsErasure { 
 			// If we found an object in erasure mode, we skip subdirs (only datadirs)...
 			break
 		}
 
+		// 该层级下没有object，而是另一些子目录前缀
+		// 第一次递归：<bucket>/xx/ <bucket>/yy/
 		// If we have many subfolders, compact ourself.
-		shouldCompact := f.newCache.Info.Name != folder.name &&
-			len(existingFolders)+len(newFolders) >= dataScannerCompactAtFolders ||
+		shouldCompact := f.newCache.Info.Name != folder.name && // bucket层级不会被Compacted
+			len(existingFolders)+len(newFolders) >= dataScannerCompactAtFolders || // 该层级的目录是否达到
 			len(existingFolders)+len(newFolders) >= dataScannerForceCompactAtFolders
 
 		if totalFolders := len(existingFolders) + len(newFolders); totalFolders > int(scannerExcessFolders.Load()) {
@@ -577,7 +609,7 @@ func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, int
 				},
 			})
 		}
-		if !into.Compacted && shouldCompact {
+		if !into.Compacted && shouldCompact { // 该层级是否需要Compacted
 			into.Compacted = true
 			newFolders = append(newFolders, existingFolders...)
 			existingFolders = nil
@@ -591,13 +623,13 @@ func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, int
 				return
 			}
 			dst := into
-			if !into.Compacted {
+			if !into.Compacted { // 如果需要compact，则不新建entry，而是将该层级的subdir都并入原entry中
 				dst = &dataUsageEntry{Compacted: false}
 			}
 			if err := f.scanFolder(ctx, folder, dst); err != nil {
 				return
 			}
-			if !into.Compacted {
+			if !into.Compacted { // 递归返回，如果不是Compacted，则证明folder的信息没有合并到into中，需要构建父子关系
 				h := dataUsageHash(folder.name)
 				into.addChild(h)
 				// We scanned a folder, optionally send update.
@@ -608,26 +640,27 @@ func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, int
 		}
 
 		// Transfer existing
-		if !into.Compacted {
+		if !into.Compacted { // 未达Compacted
 			for _, folder := range existingFolders {
 				h := hashPath(folder.name)
-				f.updateCache.copyWithChildren(&f.oldCache, h, folder.parent)
+				f.updateCache.copyWithChildren(&f.oldCache, h, folder.parent) // 使用就的Cache更新已存在的
 			}
 		}
 		// Scan new...
+		// 先扫描新的
 		for _, folder := range newFolders {
 			h := hashPath(folder.name)
 			// Add new folders to the update tree so totals update for these.
-			if !into.Compacted {
+			if !into.Compacted { // 
 				var foundAny bool
-				parent := thisHash
-				for parent != hashPath(f.updateCache.Info.Name) {
-					e := f.updateCache.find(parent.Key())
-					if e == nil || e.Compacted {
+				parent := thisHash // 当前entry的父目录的hashname
+				for parent != hashPath(f.updateCache.Info.Name) { // 非Bucket级别
+					e := f.updateCache.find(parent.Key()) // 找父entry
+					if e == nil || e.Compacted { // 父entry不存在或者已Compacted,父entry compacted则不会包含当前的entry
 						foundAny = true
 						break
 					}
-					next := f.updateCache.searchParent(parent)
+					next := f.updateCache.searchParent(parent) // 向上找parent
 					if next == nil {
 						foundAny = true
 						break
@@ -636,17 +669,18 @@ func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, int
 				}
 				if !foundAny {
 					// Add non-compacted empty entry.
+					// 在父entry下插入一个空entry，接受更新
 					f.updateCache.replaceHashed(h, &thisHash, dataUsageEntry{})
 				}
 			}
-			f.updateCurrentPath(folder.name)
+			f.updateCurrentPath(folder.name) // 指标相关
 			stopFn := globalScannerMetrics.log(scannerMetricScanFolder, f.root, folder.name)
-			scanFolder(folder)
+			scanFolder(folder) // scanFolder返回时，into的树结构已经构建完成
 			stopFn(map[string]string{"type": "new"})
 
 			// Add new folders if this is new and we don't have existing.
 			if !into.Compacted {
-				parent := f.updateCache.find(thisHash.Key())
+				parent := f.updateCache.find(thisHash.Key()) // 当前层级的父目录
 				if parent != nil && !parent.Compacted {
 					f.updateCache.deleteRecursive(h)
 					f.updateCache.copyWithChildren(&f.newCache, h, &thisHash)
@@ -660,7 +694,7 @@ func (f *folderScanner) scanFolder(ctx context.Context, folder cachedFolder, int
 			// Check if we should skip scanning folder...
 			// We can only skip if we are not indexing into a compacted destination
 			// and the entry itself is compacted.
-			if !into.Compacted && f.oldCache.isCompacted(h) {
+			if !into.Compacted && f.oldCache.isCompacted(h) { 
 				if !h.mod(f.oldCache.Info.NextCycle, dataUsageUpdateDirCycles) {
 					// Transfer and add as child...
 					f.newCache.copyWithChildren(&f.oldCache, h, folder.parent)

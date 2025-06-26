@@ -526,6 +526,9 @@ func (s *xlStorage) readMetadata(ctx context.Context, itemPath string) ([]byte, 
 	})
 }
 
+// 输入：
+// - cache: 上次scan的结果,cache.Info.Name为桶名
+// - updates: 异步更新桶的用量
 func (s *xlStorage) NSScanner(ctx context.Context, cache dataUsageCache, updates chan<- dataUsageEntry, scanMode madmin.HealScanMode, weSleep func() bool) (dataUsageCache, error) {
 	atomic.AddInt32(&s.scanning, 1)
 	defer atomic.AddInt32(&s.scanning, -1)
@@ -548,7 +551,7 @@ func (s *xlStorage) NSScanner(ctx context.Context, cache dataUsageCache, updates
 	if globalLifecycleSys != nil {
 		lc, err = globalLifecycleSys.Get(cache.Info.Name)
 		if err == nil && lc.HasActiveRules("") {
-			cache.Info.lifeCycle = lc
+			cache.Info.lifeCycle = lc // 当前bucket的生命周期配置
 		}
 	}
 
@@ -561,7 +564,7 @@ func (s *xlStorage) NSScanner(ctx context.Context, cache dataUsageCache, updates
 				cache.Info.replication = replicationConfig{
 					Config:  rcfg,
 					remotes: tgts,
-				}
+				} // 当前bucket的复制配置
 			}
 		}
 	}
@@ -589,8 +592,10 @@ func (s *xlStorage) NSScanner(ctx context.Context, cache dataUsageCache, updates
 		return cache, err
 	}
 
+	// 更新消息传递通道
 	cache.Info.updates = updates
 
+	// 扫描bucket目录，并回调getSize
 	dataUsageInfo, err := scanDataFolder(ctx, disks, s, cache, func(item scannerItem) (sizeSummary, error) {
 		// Look for `xl.meta/xl.json' at the leaf.
 		if !strings.HasSuffix(item.Path, SlashSeparator+xlStorageFormatFile) &&
